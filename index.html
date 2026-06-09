@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ピラミッド数字ゲーム</title>
+<style>
+  body {
+    font-family: system-ui, sans-serif;
+    background: #f5f5f5;
+    text-align: center;
+    padding: 20px;
+    overflow-x: hidden;
+  }
+
+  h1 { margin-bottom: 10px; }
+
+  #howto {
+    font-size: 15px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+    background: #fff;
+    padding: 10px 14px;
+    border-radius: 6px;
+    display: inline-block;
+    text-align: left;
+    box-shadow: 0 0 4px rgba(0,0,0,0.1);
+  }
+
+  #turn {
+    margin-bottom: 10px;
+    font-weight: bold;
+    font-size: 18px;
+  }
+
+  #score {
+    font-size: 18px;
+    margin-bottom: 20px;
+    min-height: 24px;
+  }
+
+  .pyramid {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 20px;
+  }
+
+  .row {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .cell {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: #e0e0e0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    cursor: pointer;
+    user-select: none;
+    transition: 0.15s;
+  }
+
+  .player { background: #222; color: #fff; }
+  .cpu { background: #ffe5e5; color: #c00; }
+  .disabled { pointer-events: none; opacity: 0.9; }
+
+  #restartBtn {
+    padding: 10px 20px;
+    font-size: 16px;
+    margin-top: 20px;
+    opacity: 0;
+    display: none;
+    transition: opacity 0.6s;
+  }
+  #restartBtn.show { display: inline-block; opacity: 1; }
+
+  /* 🌸 桜エフェクト（左右200pxの大揺れ + 落下 + 回転） */
+  .sakura-wrapper {
+    position: fixed;
+    top: -20px;
+    left: 0;
+    pointer-events: none;
+    z-index: 9999;
+    animation: fall 3.5s linear forwards;
+  }
+
+  .sakura {
+    width: 12px;
+    height: 16px;
+    background: pink;
+    border-radius: 70% 30% 70% 30%;
+    opacity: 0.9;
+
+    animation:
+      sway 2.5s ease-in-out infinite alternate,
+      rotate 3.5s linear infinite;
+  }
+
+  /* 落下（Y方向のみ） */
+  @keyframes fall {
+    from { transform: translateY(0); }
+    to   { transform: translateY(100vh); opacity: 0; }
+  }
+
+  /* 左右揺れ（X方向 ±200px） */
+  @keyframes sway {
+    from { transform: translateX(-200px); }
+    to   { transform: translateX(200px); }
+  }
+
+  /* 回転（rotate のみ） */
+  @keyframes rotate {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+</style>
+</head>
+<body>
+
+<h1>ピラミッド数字ゲーム</h1>
+
+<div id="howto">
+  【遊び方】<br>
+  ・あなたと相手が交互に丸を1つずつ選びます。<br>
+  ・あなたが選んだ丸には黒い数字（1から順番）が入ります。<br>
+  ・相手が選んだ丸には赤い数字（1から順番）が入ります。<br>
+  ・最後に1つだけ残った丸が「基準点」になります。<br>
+  ・基準点の周りの6方向にある丸の数字を合計し、<br>
+  　黒の合計と赤の合計を比べて勝敗を決めます。<br>
+</div>
+
+<div id="turn">あなたの番です</div>
+<div id="score"></div>
+
+<div class="pyramid" id="pyramid"></div>
+
+<button id="restartBtn">もう一度遊ぶ</button>
+
+<script>
+  const pyramidEl = document.getElementById('pyramid');
+  const turnEl = document.getElementById('turn');
+  const scoreEl = document.getElementById('score');
+  const restartBtn = document.getElementById('restartBtn');
+
+  let isPlayerTurn = true;
+  let cells = [];
+  let playerCount = 0;
+  let cpuCount = 0;
+
+  function createPyramid() {
+    pyramidEl.innerHTML = '';
+    cells = [];
+    isPlayerTurn = true;
+    playerCount = 0;
+    cpuCount = 0;
+
+    turnEl.textContent = 'あなたの番です';
+    scoreEl.textContent = '';
+
+    restartBtn.classList.remove('show');
+    restartBtn.style.display = "none";
+
+    for (let row = 1; row <= 6; row++) {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'row';
+
+      for (let col = 0; col < row; col++) {
+        const cellEl = document.createElement('div');
+        cellEl.className = 'cell';
+        cellEl.textContent = "";
+        cellEl.row = row;
+        cellEl.col = col;
+
+        cellEl.addEventListener('click', () => handlePlayerClick(cellEl));
+
+        rowEl.appendChild(cellEl);
+        cells.push(cellEl);
+      }
+
+      pyramidEl.appendChild(rowEl);
+    }
+  }
+
+  function handlePlayerClick(cellEl) {
+    if (!isPlayerTurn) return;
+
+    playerCount++;
+    cellEl.textContent = playerCount;
+    cellEl.classList.add('player', 'disabled');
+
+    endTurn();
+  }
+
+  function endTurn() {
+    const available = cells.filter(c =>
+      !c.classList.contains('player') && !c.classList.contains('cpu')
+    );
+
+    if (available.length === 1) {
+      finishGame(available[0]);
+      return;
+    }
+
+    isPlayerTurn = !isPlayerTurn;
+
+    if (!isPlayerTurn) {
+      turnEl.textContent = "相手の番です";
+      setTimeout(cpuMove, 500);
+    } else {
+      turnEl.textContent = "あなたの番です";
+    }
+  }
+
+  function cpuMove() {
+    const available = cells.filter(c =>
+      !c.classList.contains('player') && !c.classList.contains('cpu')
+    );
+
+    if (available.length === 1) {
+      finishGame(available[0]);
+      return;
+    }
+
+    const choice = available[Math.floor(Math.random() * available.length)];
+
+    cpuCount++;
+    choice.textContent = cpuCount;
+    choice.classList.add('cpu', 'disabled');
+
+    endTurn();
+  }
+
+  function getNeighbors(target) {
+    const dirs = [
+      [-1, -1], [-1, 0],
+      [0, -1], [0, 1],
+      [1, 0], [1, 1]
+    ];
+
+    const neighbors = [];
+
+    for (const [dr, dc] of dirs) {
+      const r = target.row + dr;
+      const c = target.col + dc;
+
+      const cell = cells.find(x => x.row === r && x.col === c);
+      if (cell) neighbors.push(cell);
+    }
+
+    return neighbors;
+  }
+
+  function calculateScore(baseCell) {
+    const neighbors = getNeighbors(baseCell);
+
+    let playerScore = 0;
+    let cpuScore = 0;
+
+    neighbors.forEach(cell => {
+      const value = Number(cell.textContent);
+
+      if (cell.classList.contains('player')) {
+        playerScore += value;
+      }
+      if (cell.classList.contains('cpu')) {
+        cpuScore += value;
+      }
+    });
+
+    return { playerScore, cpuScore };
+  }
+
+  function blinkBaseCell(baseCell, callback) {
+    let count = 0;
+    const blink = setInterval(() => {
+      baseCell.style.opacity = (baseCell.style.opacity === "0.2") ? "1" : "0.2";
+      count++;
+
+      if (count >= 6) {
+        clearInterval(blink);
+        baseCell.style.opacity = "1";
+        callback();
+      }
+    }, 200);
+  }
+
+  function showScores(playerScore, cpuScore, callback) {
+    scoreEl.textContent = "";
+
+    setTimeout(() => {
+      scoreEl.textContent = `黒の合計：${playerScore}`;
+    }, 300);
+
+    setTimeout(() => {
+      scoreEl.textContent += `　｜　赤の合計：${cpuScore}`;
+    }, 800);
+
+    setTimeout(() => {
+      callback();
+    }, 1300);
+  }
+
+  function winnerEffect(baseCell, winner) {
+    if (winner === "player") {
+      baseCell.style.boxShadow = "0 0 20px 10px gold";
+    } else if (winner === "cpu") {
+      baseCell.style.boxShadow = "0 0 20px 10px #b30000";
+    } else {
+      baseCell.style.boxShadow = "0 0 20px 10px skyblue";
+    }
+
+    setTimeout(() => {
+      baseCell.style.boxShadow = "none";
+    }, 1500);
+  }
+
+  /* 🌸 桜エフェクト（左右200pxの大揺れ + 落下 + 回転） */
+  function createSakura(color) {
+    for (let i = 0; i < 50; i++) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "sakura-wrapper";
+      wrapper.style.left = Math.random() * 100 + "vw";
+      wrapper.style.animationDuration = (2.5 + Math.random() * 1.5) + "s";
+
+      const sakura = document.createElement("div");
+      sakura.className = "sakura";
+      sakura.style.background = color;
+      sakura.style.width = (8 + Math.random() * 10) + "px";
+      sakura.style.height = (10 + Math.random() * 12) + "px";
+      sakura.style.animationDelay = (Math.random() * 0.5) + "s";
+
+      wrapper.appendChild(sakura);
+      document.body.appendChild(wrapper);
+
+      setTimeout(() => wrapper.remove(), 4000);
+    }
+  }
+
+  function showWinner(playerScore, cpuScore, baseCell) {
+    let winner;
+
+    if (playerScore > cpuScore) {
+      turnEl.textContent = `あなたの勝ち！`;
+      winner = "player";
+      createSakura("#f9cfe3");  // 薄い桜色
+    } else if (playerScore < cpuScore) {
+      turnEl.textContent = `相手の勝ち…`;
+      winner = "cpu";
+      createSakura("#b30000");  // 暗い赤
+    } else {
+      turnEl.textContent = `引き分け`;
+      winner = "draw";
+    }
+
+    winnerEffect(baseCell, winner);
+
+    restartBtn.style.display = "inline-block";
+    setTimeout(() => restartBtn.classList.add('show'), 200);
+  }
+
+  function finishGame(baseCell) {
+    const { playerScore, cpuScore } = calculateScore(baseCell);
+
+    blinkBaseCell(baseCell, () => {
+      showScores(playerScore, cpuScore, () => {
+        showWinner(playerScore, cpuScore, baseCell);
+      });
+    });
+  }
+
+  restartBtn.addEventListener('click', () => {
+    scoreEl.textContent = "";
+    createPyramid();
+  });
+
+  createPyramid();
+</script>
+
+</body>
+</html>
